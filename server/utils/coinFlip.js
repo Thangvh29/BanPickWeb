@@ -1,0 +1,1 @@
+exports.coinFlip = () => (Math.random() > 0.5 ? 'team1' : 'team2');
