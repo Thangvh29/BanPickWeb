@@ -116,7 +116,7 @@ import React, { useState, useEffect, useCallback } from 'react';
           setTimer(null);
         } else {
           const updateTimer = () => {
-            const elapsed = Math.floor((new Date().getTime() - startTimestamp) / 1000);
+            const elapsed = Math.floor((new Date().getTime() - startTimer) / 1000);
             const newTimeLeft = duration - elapsed;
             setTimer(newTimeLeft > 0 ? newTimeLeft : 0);
           };
@@ -241,7 +241,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 
     const handleReady = useCallback(async () => {
       if (user !== 'player1') return;
-      const requiredWeapons = (parseInt(sessionData?.banCount || banCount) || 0) * 2 + (parseInt(sessionData?.pickCount || pickCount) || 0) * 2;
+      const requiredWeapons = (parseInt(sessionData?.banCount) || 0) * 2 + (parseInt(sessionData?.pickCount) || 0) * 2;
       if (requiredWeapons > 0 && sessionData?.selectedWeapons?.length < requiredWeapons) {
         setError(`Vui lòng chọn ít nhất ${requiredWeapons} súng để bắt đầu`);
         return;
@@ -261,7 +261,7 @@ import React, { useState, useEffect, useCallback } from 'react';
         setError(error.response?.data?.message || 'Lỗi khi tung đồng xu');
         setShowCoinFlip(false);
       }
-    }, [user, sessionData, banCount, pickCount]);
+    }, [user, sessionData]);
 
     const handleReset = useCallback(async () => {
       if (user === 'player1') {
@@ -361,7 +361,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 
     const currentTurn = sessionData?.currentTurn === 'team1' ? 'team1' : sessionData?.currentTurn === 'team2' ? 'team2' : null;
     const isControlDisabled = started && !sessionData?.isCompleted;
-    const requiredWeapons = (parseInt(sessionData?.banCount || banCount) || 0) * 2 + (parseInt(sessionData?.pickCount || pickCount) || 0) * 2;
+    const requiredWeapons = (parseInt(sessionData?.banCount) || 0) * 2 + (parseInt(sessionData?.pickCount) || 0) * 2;
     const isWeaponsSelected = sessionData?.selectedWeapons?.length >= requiredWeapons && requiredWeapons > 0;
     const isReadyDisabled =
       user !== 'player1' ||
@@ -403,8 +403,11 @@ import React, { useState, useEffect, useCallback } from 'react';
                       <Form.Control
                         type="number"
                         value={banCount}
-                        onChange={(e) => setBanCount(e.target.value)}
-                        disabled={locked || isControlDisabled}
+                        onChange={(e) => {
+                          setBanCount(e.target.value);
+                          setIsInputSet(true);
+                        }}
+                        disabled={isControlDisabled}
                         size="sm"
                       />
                     </div>
@@ -413,15 +416,18 @@ import React, { useState, useEffect, useCallback } from 'react';
                       <Form.Control
                         type="number"
                         value={pickCount}
-                        onChange={(e) => setPickCount(e.target.value)}
-                        disabled={locked || isControlDisabled}
+                        onChange={(e) => {
+                          setPickCount(e.target.value);
+                          setIsInputSet(true);
+                        }}
+                        disabled={isControlDisabled}
                         size="sm"
                       />
                     </div>
                     <Button
                       onClick={handleLock}
                       className="me-2 btn-sm btn-orange"
-                      disabled={isControlDisabled || locked || !banCount && !pickCount}
+                      disabled={isControlDisabled}
                     >
                       Khóa
                     </Button>
@@ -560,6 +566,7 @@ import React, { useState, useEffect, useCallback } from 'react';
     );
   }
 
+  // Tối ưu component con
   const MemoizedWeaponGrid = React.memo(WeaponGrid);
   const MemoizedWeaponSelectionPanel = React.memo(WeaponSelectionPanel);
 
