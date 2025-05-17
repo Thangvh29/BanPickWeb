@@ -105,7 +105,7 @@ import React, { useState, useEffect, useCallback } from 'react';
           setTimeout(() => {
             setFlipResult(firstTurn === 'team1' ? 'Player 1' : 'Player 2');
             setStarted(true);
-            setCurrentAction('ban'); // Đảm bảo bắt đầu với ban
+            setCurrentAction('ban');
             setShowCoinFlip(false);
           }, 500);
         }, 2000);
@@ -256,13 +256,12 @@ import React, { useState, useEffect, useCallback } from 'react';
           { headers: { Authorization: `Bearer ${token}` } }
         );
         console.log('Coinflip response:', response.data);
-        await fetchSessionData(); // Đảm bảo cập nhật dữ liệu mới
       } catch (error) {
         console.error('Error flipping coin:', error.response?.data || error.message);
         setError(error.response?.data?.message || 'Lỗi khi tung đồng xu');
         setShowCoinFlip(false);
       }
-    }, [user, sessionData, banCount, pickCount, fetchSessionData]);
+    }, [user, sessionData, banCount, pickCount]);
 
     const handleReset = useCallback(async () => {
       if (user === 'player1') {

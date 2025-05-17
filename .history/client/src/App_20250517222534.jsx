@@ -105,7 +105,7 @@ import React, { useState, useEffect, useCallback } from 'react';
           setTimeout(() => {
             setFlipResult(firstTurn === 'team1' ? 'Player 1' : 'Player 2');
             setStarted(true);
-            setCurrentAction('ban'); // Đảm bảo bắt đầu với ban
+            setCurrentAction('ban');
             setShowCoinFlip(false);
           }, 500);
         }, 2000);
