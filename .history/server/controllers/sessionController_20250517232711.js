@@ -297,6 +297,50 @@ const Session = require("../models/Session");
         io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
       }
     }, 1000);
+  };const startTimer = async (session, io, action, team) => {
+    if (!session || session.isCompleted || !session.currentTurn || !action) {
+      console.log("Timer not started: session completed, no current turn, or no action");
+      if (currentTimer) {
+        clearInterval(currentTimer);
+        currentTimer = null;
+        io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
+      }
+      return;
+    }
+  
+    console.log(`Starting timer for ${action} turn of ${team} at ${new Date().toISOString()}`);
+  
+    if (currentTimer) {
+      clearInterval(currentTimer);
+      currentTimer = null;
+    }
+  
+    const duration = 30;
+    session.startTime = new Date();
+    session.duration = duration;
+    await session.save();
+    sessionCache.set("activeSession", session);
+  
+    const startTimestamp = session.startTime.getTime();
+    let lastTimeLeft = duration;
+  
+    currentTimer = setInterval(async () => {
+      const elapsed = Math.floor((new Date().getTime() - startTimestamp) / 1000);
+      const timeLeft = duration - elapsed;
+  
+      if (timeLeft !== lastTimeLeft) {
+        console.log(`Timer update: ${timeLeft}s for ${action} by ${team} at ${new Date().toISOString()}`);
+        io.emit("timerUpdate", { timeLeft, action, team });
+        lastTimeLeft = timeLeft;
+      }
+  
+      if (timeLeft <= 0) {
+        clearInterval(currentTimer);
+        currentTimer = null;
+        // Thêm logic tự động chọn khi hết thời gian nếu cần
+        io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
+      }
+    }, 1000);
   };
   
   const resetSession = async (req, res) => {
@@ -380,18 +424,51 @@ const Session = require("../models/Session");
         io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
       }
   
-      // Cập nhật session dựa trên action (ban hoặc pick)
       if (action === "ban") {
         session.bans.push({ weaponId, team: session.currentTurn });
       } else if (action === "pick") {
         session.picks.push({ weaponId, team: session.currentTurn });
       }
   
-      // Cập nhật lượt và hành động tiếp theo
-      session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
-      session.actionType = session.bans.length < session.banCount ? "ban" : session.picks.length < session.pickCount ? "pick" : null;
-      if (!session.actionType) session.isCompleted = true;
+      session.actionsCompleted += 1;
   
+      const totalBansPerPhase = session.banCount * 2;
+      const totalPicksPerPhase = session.pickCount * 2;
+      const totalActionsPerPhase = totalBansPerPhase + totalPicksPerPhase;
+      const currentPhase = Math.floor(session.actionsCompleted / totalActionsPerPhase);
+      const actionsInPhase = session.actionsCompleted % totalActionsPerPhase;
+  
+      const totalActions = totalActionsPerPhase * 2;
+  
+      if (session.actionsCompleted >= totalActions) {
+        session.isCompleted = true;
+        session.currentTurn = null;
+        session.actionType = null;
+        session.phase = 0;
+        session.actionsCompleted = 0;
+      } else {
+        const inBanPhase = actionsInPhase < totalBansPerPhase;
+        const inPickPhase = actionsInPhase >= totalBansPerPhase && actionsInPhase < totalActionsPerPhase;
+  
+        session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
+  
+        if (actionsInPhase === 0) {
+          session.currentTurn = session.firstTurn;
+        } else if (actionsInPhase === totalBansPerPhase) {
+          session.currentTurn = session.firstTurn;
+        }
+  
+        if (inBanPhase) {
+          session.actionType = "ban";
+        } else if (inPickPhase) {
+          session.actionType = "pick";
+        } else {
+          session.actionType = null;
+          session.isCompleted = true;
+        }
+      }
+  
+      // Không reset readyStatus ở đây
       await session.save();
       sessionCache.set("activeSession", session);
       io.emit("sessionUpdate", session);
@@ -559,7 +636,7 @@ const Session = require("../models/Session");
       session.currentTurn = session.firstTurn;
       session.actionType = session.banCount > 0 ? "ban" : session.pickCount > 0 ? "pick" : null;
       session.selectedWeapons = selectedWeapons || [];
-      session.readyStatus.player1Ready = false;
+      session.readyStatus.player1Ready = false; // Reset chỉ sau coin flip
       session.readyStatus.player2Ready = false;
       session.phase = 0;
       session.actionsCompleted = 0;

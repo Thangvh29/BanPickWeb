@@ -299,6 +299,58 @@ const Session = require("../models/Session");
     }, 1000);
   };
   
+  const lockIn = async (req, res) => {
+    const { weaponId, action } = req.body;
+    try {
+      const session = await Session.findOne({});
+      if (!session) return res.status(404).json({ message: "No active session" });
+      if (session.isCompleted) return res.status(400).json({ message: "Session is completed" });
+      if (session.actionType !== action) return res.status(400).json({ message: `Not ${action} turn` });
+      if (req.user.role === "player1" && session.currentTurn !== "team1") return res.status(403).json({ message: "Không phải lượt của bạn" });
+      if (req.user.role === "player2" && session.currentTurn !== "team2") return res.status(403).json({ message: "Không phải lượt của bạn" });
+      if (session.bans.some(ban => ban.weaponId === weaponId) || session.picks.some(pick => pick.weaponId === weaponId)) {
+        return res.status(400).json({ message: "Weapon already banned or picked" });
+      }
+  
+      const io = req.app.get("io");
+  
+      if (currentTimer) {
+        clearInterval(currentTimer);
+        currentTimer = null;
+        io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
+      }
+  
+      // Cập nhật session dựa trên action (ban hoặc pick)
+      if (action === "ban") {
+        session.bans.push({ weaponId, team: session.currentTurn });
+      } else if (action === "pick") {
+        session.picks.push({ weaponId, team: session.currentTurn });
+      }
+  
+      // Cập nhật lượt và hành động tiếp theo
+      session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
+      session.actionType = session.bans.length < session.banCount ? "ban" : session.picks.length < session.pickCount ? "pick" : null;
+      if (!session.actionType) session.isCompleted = true;
+  
+      await session.save();
+      sessionCache.set("activeSession", session);
+      io.emit("sessionUpdate", session);
+  
+      if (!session.isCompleted && session.currentTurn && session.actionType) {
+        console.log(`Starting timer after lockIn for ${session.actionType} by ${session.currentTurn} at ${new Date().toISOString()}`);
+        startTimer(session, io, session.actionType, session.currentTurn);
+      } else {
+        console.log("Session completed or no next turn after lockIn");
+        io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
+      }
+  
+      res.json({ message: `${action} locked`, session });
+    } catch (error) {
+      console.error(`Error locking in ${action}:`, error);
+      res.status(500).json({ message: "Error locking in", error });
+    }
+  };
+  
   const resetSession = async (req, res) => {
     if (req.user.role !== "player1") return res.status(403).json({ message: "Only Player 1 can reset" });
 
@@ -356,58 +408,6 @@ const Session = require("../models/Session");
     } catch (error) {
       console.error("Error resetting session:", error);
       res.status(500).json({ message: "Error resetting session", error });
-    }
-  };
-
-  const lockIn = async (req, res) => {
-    const { weaponId, action } = req.body;
-    try {
-      const session = await Session.findOne({});
-      if (!session) return res.status(404).json({ message: "No active session" });
-      if (session.isCompleted) return res.status(400).json({ message: "Session is completed" });
-      if (session.actionType !== action) return res.status(400).json({ message: `Not ${action} turn` });
-      if (req.user.role === "player1" && session.currentTurn !== "team1") return res.status(403).json({ message: "Không phải lượt của bạn" });
-      if (req.user.role === "player2" && session.currentTurn !== "team2") return res.status(403).json({ message: "Không phải lượt của bạn" });
-      if (session.bans.some(ban => ban.weaponId === weaponId) || session.picks.some(pick => pick.weaponId === weaponId)) {
-        return res.status(400).json({ message: "Weapon already banned or picked" });
-      }
-  
-      const io = req.app.get("io");
-  
-      if (currentTimer) {
-        clearInterval(currentTimer);
-        currentTimer = null;
-        io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
-      }
-  
-      // Cập nhật session dựa trên action (ban hoặc pick)
-      if (action === "ban") {
-        session.bans.push({ weaponId, team: session.currentTurn });
-      } else if (action === "pick") {
-        session.picks.push({ weaponId, team: session.currentTurn });
-      }
-  
-      // Cập nhật lượt và hành động tiếp theo
-      session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
-      session.actionType = session.bans.length < session.banCount ? "ban" : session.picks.length < session.pickCount ? "pick" : null;
-      if (!session.actionType) session.isCompleted = true;
-  
-      await session.save();
-      sessionCache.set("activeSession", session);
-      io.emit("sessionUpdate", session);
-  
-      if (!session.isCompleted && session.currentTurn && session.actionType) {
-        console.log(`Starting timer after lockIn for ${session.actionType} by ${session.currentTurn} at ${new Date().toISOString()}`);
-        startTimer(session, io, session.actionType, session.currentTurn);
-      } else {
-        console.log("Session completed or no next turn after lockIn");
-        io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
-      }
-  
-      res.json({ message: `${action} locked`, session });
-    } catch (error) {
-      console.error(`Error locking in ${action}:`, error);
-      res.status(500).json({ message: "Error locking in", error });
     }
   };
 
@@ -559,7 +559,7 @@ const Session = require("../models/Session");
       session.currentTurn = session.firstTurn;
       session.actionType = session.banCount > 0 ? "ban" : session.pickCount > 0 ? "pick" : null;
       session.selectedWeapons = selectedWeapons || [];
-      session.readyStatus.player1Ready = false;
+      session.readyStatus.player1Ready = false; // Reset chỉ sau coin flip
       session.readyStatus.player2Ready = false;
       session.phase = 0;
       session.actionsCompleted = 0;
