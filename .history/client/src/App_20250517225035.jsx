@@ -481,9 +481,9 @@ import React, { useState, useEffect, useCallback } from 'react';
                   user={user}
                   availableWeapons={sessionData?.selectedWeapons || selectedWeapons}
                   onBanPick={handleBanPick}
-                  bans={sessionData?.bans || []}
-                  picks={sessionData?.picks || []}
-                />
+  bans={sessionData?.bans || []}
+  picks={sessionData?.picks || []}
+/>
             </Col>
             <Col xs={12} md={3} className="p-3 d-flex flex-column align-items-center">
               <h5>Người chơi bắt đầu trước: {flipResult || 'Chưa xác định'}</h5>

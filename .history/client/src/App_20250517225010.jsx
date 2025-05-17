@@ -475,15 +475,15 @@ import React, { useState, useEffect, useCallback } from 'react';
                 )}
               </div>
               <WeaponGrid
-                  currentTurn={currentTurn}
-                  onUpdate={handleUpdate}
-                  turnAction={currentAction}
-                  user={user}
-                  availableWeapons={sessionData?.selectedWeapons || selectedWeapons}
-                  onBanPick={handleBanPick}
-                  bans={sessionData?.bans || []}
-                  picks={sessionData?.picks || []}
-                />
+  currentTurn={currentTurn}
+  onUpdate={handleUpdate}
+  turnAction={currentAction}
+  user={user}
+  availableWeapons={sessionData?.selectedWeapons || selectedWeapons}
+  onBanPick={handleBanPick}
+  bans={sessionData?.bans || []}
+  picks={sessionData?.picks || []}
+/>
             </Col>
             <Col xs={12} md={3} className="p-3 d-flex flex-column align-items-center">
               <h5>Người chơi bắt đầu trước: {flipResult || 'Chưa xác định'}</h5>
