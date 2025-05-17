@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { Container, Row, Col, Button, Form, Alert } from 'react-bootstrap';
 import UserPanelLeft from './components/UserPanelLeft';
@@ -13,6 +13,9 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/sessi
 const socket = io((import.meta.env.VITE_API_URL || 'http://localhost:5000').replace('/api/session', ''), {
   autoConnect: true,
   transports: ['websocket', 'polling'],
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
 });
 
 function App() {
@@ -31,12 +34,15 @@ function App() {
   const [error, setError] = useState('');
   const [selectedWeapons, setSelectedWeapons] = useState([]);
   const [timer, setTimer] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const fetchSessionData = useCallback(async () => {
+    setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
       if (!token) {
         console.log('No token found, skipping session fetch');
+        setError('Vui lòng đăng nhập');
         return;
       }
       console.log('Fetching session with token:', token);
@@ -79,16 +85,10 @@ function App() {
       } else {
         setError('Lỗi khi tải dữ liệu phiên, vui lòng thử lại');
       }
+    } finally {
+      setIsLoading(false);
     }
   }, [isInputSet, locked]);
-
-  useEffect(() => {
-    if (user) {
-      fetchSessionData();
-      const interval = setInterval(fetchSessionData, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [user, fetchSessionData]);
 
   useEffect(() => {
     socket.on('connect', () => {
@@ -96,6 +96,7 @@ function App() {
     });
     socket.on('connect_error', (error) => {
       console.error('Socket.IO connection error:', error.message);
+      setError('Không thể kết nối server, vui lòng thử lại');
     });
     socket.on('coinFlip', ({ firstTurn, coinFace }) => {
       console.log('Received coinFlip event:', { firstTurn, coinFace });
@@ -110,9 +111,20 @@ function App() {
         }, 500);
       }, 2000);
     });
-    socket.on('timerUpdate', ({ timeLeft, action, team }) => {
+    socket.on('timerUpdate', ({ timeLeft, action, team, startTimestamp, duration }) => {
       console.log('Received timerUpdate:', { timeLeft, action, team });
-      setTimer(timeLeft === null ? null : timeLeft);
+      if (timeLeft === null) {
+        setTimer(null);
+      } else {
+        const updateTimer = () => {
+          const elapsed = Math.floor((new Date().getTime() - startTimestamp) / 1000);
+          const newTimeLeft = duration - elapsed;
+          setTimer(newTimeLeft > 0 ? newTimeLeft : 0);
+        };
+        updateTimer();
+        const interval = setInterval(updateTimer, 1000);
+        return () => clearInterval(interval);
+      }
     });
     socket.on('autoSelect', ({ weaponId, action, team, session }) => {
       console.log('Received autoSelect:', { weaponId, action, team });
@@ -125,7 +137,12 @@ function App() {
     });
     socket.on('sessionUpdate', (session) => {
       console.log('Received sessionUpdate:', session);
-      setSessionData(session);
+      setSessionData(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(session)) {
+          return session;
+        }
+        return prev;
+      });
       setCurrentAction(session.actionType);
       setStarted(!session.isCompleted);
       setFlipResult(session.firstTurn === 'team1' ? 'Player 1' : session.firstTurn === 'team2' ? 'Player 2' : null);
@@ -145,7 +162,26 @@ function App() {
     };
   }, []);
 
-  const handleLock = async () => {
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios
+        .get(`${API_URL}/verify`, { headers: { Authorization: `Bearer ${token}` } })
+        .then((response) => {
+          console.log('Token verified, role:', response.data.role);
+          setUser(response.data.role);
+          fetchSessionData();
+        })
+        .catch((error) => {
+          console.error('Token verification failed:', error.response?.data || error.message);
+          localStorage.removeItem('token');
+          setUser(null);
+          setError('Phiên đăng nhập không hợp lệ, vui lòng đăng nhập lại');
+        });
+    }
+  }, [fetchSessionData]);
+
+  const handleLock = useCallback(async () => {
     if (parseInt(banCount) >= 0 && parseInt(pickCount) >= 0 && (parseInt(banCount) > 0 || parseInt(pickCount) > 0)) {
       setIsInputSet(true);
       setLocked(true);
@@ -166,17 +202,17 @@ function App() {
     } else {
       setError('Vui lòng nhập ít nhất một số lượt ban hoặc pick hợp lệ');
     }
-  };
+  }, [banCount, pickCount, fetchSessionData]);
 
-  const handleUnlock = () => {
+  const handleUnlock = useCallback(() => {
     setLocked(false);
     setIsInputSet(false);
     setBanCount('');
     setPickCount('');
     setError('');
-  };
+  }, []);
 
-  const handlePrepare = async () => {
+  const handlePrepare = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       console.log(`Player ${user} preparing with token: ${token}`);
@@ -195,9 +231,9 @@ function App() {
       });
       setError(error.response?.data?.message || 'Lỗi khi xác nhận chuẩn bị');
     }
-  };
+  }, [user]);
 
-  const handleReady = async () => {
+  const handleReady = useCallback(async () => {
     if (user !== 'player1') return;
     const requiredWeapons = (parseInt(sessionData?.banCount) || 0) * 2 + (parseInt(sessionData?.pickCount) || 0) * 2;
     if (requiredWeapons > 0 && sessionData?.selectedWeapons?.length < requiredWeapons) {
@@ -219,9 +255,9 @@ function App() {
       setError(error.response?.data?.message || 'Lỗi khi tung đồng xu');
       setShowCoinFlip(false);
     }
-  };
+  }, [user, sessionData]);
 
-  const handleReset = async () => {
+  const handleReset = useCallback(async () => {
     if (user === 'player1') {
       try {
         const token = localStorage.getItem('token');
@@ -249,31 +285,14 @@ function App() {
         setError(error.response?.data?.message || 'Lỗi khi reset phiên');
       }
     }
-  };
+  }, [user, fetchSessionData]);
 
-  const handleUpdate = () => {
+  const handleUpdate = useCallback(() => {
+    // Logic này không còn cần thiết vì backend đã xử lý thứ tự ban/pick
     fetchSessionData();
-    const totalBans = parseInt(banCount) * 2;
-    const totalPicks = parseInt(pickCount) * 2;
-    const newActionIndex = actionIndex + 1;
+  }, [fetchSessionData]);
 
-    if (newActionIndex < totalBans) {
-      setCurrentAction('ban');
-    } else if (newActionIndex < totalBans + totalPicks) {
-      setCurrentAction('pick');
-      if (newActionIndex === totalBans) {
-        setSessionData(prev => ({
-          ...prev,
-          currentTurn: prev.firstTurn
-        }));
-      }
-    } else {
-      setCurrentAction(null);
-    }
-    setActionIndex(newActionIndex);
-  };
-
-  const handleWeaponSelect = async (weaponId) => {
+  const handleWeaponSelect = useCallback(async (weaponId) => {
     if (sessionData?.selectedWeapons?.includes(weaponId)) {
       console.log('Weapon already selected:', weaponId);
       setError('Súng này đã được chọn');
@@ -297,9 +316,9 @@ function App() {
       setError(error.response?.data?.message || 'Lỗi khi chọn súng');
       setSelectedWeapons(sessionData?.selectedWeapons || []);
     }
-  };
+  }, [sessionData, fetchSessionData]);
 
-  const handleBanPick = async (weaponId, action) => {
+  const handleBanPick = useCallback(async (weaponId, action) => {
     try {
       const token = localStorage.getItem('token');
       console.log(`Performing ${action} for weapon:`, weaponId);
@@ -310,19 +329,18 @@ function App() {
       );
       console.log(`${action} locked response`);
       setError('');
-      await fetchSessionData();
     } catch (error) {
       console.error(`Error performing ${action}:`, error.response?.data || error.message);
       setError(error.response?.data?.message || `Lỗi khi thực hiện ${action}`);
     }
-  };
+  }, []);
 
-  const handleLogin = (role) => {
+  const handleLogin = useCallback((role) => {
     setUser(role);
     setError('');
-  };
+  }, []);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.removeItem('token');
     axios.post(`${API_URL}/logout`, {}, { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } })
       .catch(err => console.error('Logout error:', err));
@@ -340,26 +358,7 @@ function App() {
     setError('');
     setSelectedWeapons([]);
     setTimer(null);
-  };
-
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      axios
-        .get(`${API_URL}/verify`, { headers: { Authorization: `Bearer ${token}` } })
-        .then((response) => {
-          console.log('Token verified, role:', response.data.role);
-          setUser(response.data.role);
-          fetchSessionData();
-        })
-        .catch((error) => {
-          console.error('Token verification failed:', error.response?.data || error.message);
-          localStorage.removeItem('token');
-          setUser(null);
-          setError('Phiên đăng nhập không hợp lệ, vui lòng đăng nhập lại');
-        });
-    }
-  }, [fetchSessionData]);
+  }, []);
 
   const currentTurn = sessionData?.currentTurn === 'team1' ? 'team1' : sessionData?.currentTurn === 'team2' ? 'team2' : null;
   const isControlDisabled = started && !sessionData?.isCompleted;
@@ -372,20 +371,7 @@ function App() {
     !sessionData?.readyStatus?.player1Ready ||
     !sessionData?.readyStatus?.player2Ready;
 
-  console.log('Debug state:', {
-    user,
-    locked,
-    isWeaponsSelected,
-    requiredWeapons,
-    selectedWeapons: sessionData?.selectedWeapons,
-    banCount: sessionData?.banCount,
-    pickCount: sessionData?.pickCount,
-    player1Ready: sessionData?.readyStatus?.player1Ready,
-    player2Ready: sessionData?.readyStatus?.player2Ready,
-    isReadyDisabled,
-    isControlDisabled,
-    timer,
-  });
+  if (isLoading) return <div>Đang tải...</div>;
 
   if (!user) {
     return <Login onLogin={handleLogin} />;

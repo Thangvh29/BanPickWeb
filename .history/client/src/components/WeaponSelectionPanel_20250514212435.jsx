@@ -14,7 +14,7 @@ import cz75auto from '../assets/img/cz75-auto.png';
 import deagle from '../assets/img/desert-eagle.png';
 import FiveSeven from '../assets/img/Five-Seven.png';
 import SG008 from '../assets/img/SG-008.png';
-import awp from '../assets/img/awp.png';
+
 const WeaponSelectionPanel = ({ onSelectWeapon, disabled }) => {
   const weapons = [
     { id: 'ak-47', name: 'AK-47', image: ak47 },
@@ -32,7 +32,6 @@ const WeaponSelectionPanel = ({ onSelectWeapon, disabled }) => {
     { id: 'desert-eagle', name: 'Desert Eagle', image: deagle },
     { id: 'FiveSeven', name:'Five seveN', image: FiveSeven},
     { id: 'SG008', name: 'SG-008', image: SG008},
-    { id: 'AWP', name: 'AWP', image: awp}
   ];
 
   const handleClick = (weaponId) => {

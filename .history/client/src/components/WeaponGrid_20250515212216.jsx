@@ -38,7 +38,6 @@ const WeaponGrid = ({ currentTurn, onUpdate, turnAction, user, availableWeapons,
     { id: 'desert-eagle', name: 'Desert Eagle', image: deagle },
     { id: 'FiveSeven', name:'Five seveN', image: FiveSeven},
     { id: 'SG008', name: 'SG-008', image: SG008},
-    { id: 'AWP', name: 'AWP', image: awp}
   ];
 
   const filteredWeapons = weapons.filter(weapon => availableWeapons.includes(weapon.id));

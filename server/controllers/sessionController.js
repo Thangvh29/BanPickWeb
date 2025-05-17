@@ -9,6 +9,9 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
+// Cache for sessions
+const sessionCache = new Map();
+
 // Middleware to authenticate token
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers["authorization"];
@@ -47,6 +50,7 @@ const login = async (req, res) => {
       return res.status(400).json({ message: "Mật khẩu không đúng" });
 
     let session = await Session.findOne({});
+    let sessionChanged = false;
     if (!session) {
       console.log(`Creating new session for user: ${username}`);
       session = new Session({
@@ -62,8 +66,10 @@ const login = async (req, res) => {
         isCompleted: false,
         timerId: null,
         readyStatus: { player1Ready: false, player2Ready: false },
+        phase: 0, // Thêm phase để theo dõi giai đoạn ban/pick
+        actionsCompleted: 0, // Đếm số hành động đã hoàn thành trong phase
       });
-      await session.save();
+      sessionChanged = true;
     } else {
       if (
         session.players.length >= 2 &&
@@ -80,20 +86,23 @@ const login = async (req, res) => {
       ) {
         console.log(`Adding user ${username} to existing session`);
         session.players.push({ userId: user._id, role: user.role });
-        await session.save();
+        sessionChanged = true;
       }
+    }
+
+    if (sessionChanged) {
+      await session.save();
+      sessionCache.set("activeSession", session);
+      const io = req.app.get("io");
+      io.emit("sessionUpdate", session);
+      console.log(`User ${username} logged in, session updated:`, session);
     }
 
     const token = jwt.sign(
       { id: user._id, username: user.username, role: user.role },
       JWT_SECRET,
-      {
-        expiresIn: "24h",
-      }
+      { expiresIn: "24h" }
     );
-    const io = req.app.get("io");
-    io.emit("sessionUpdate", session);
-    console.log(`User ${username} logged in, session updated:`, session);
     res.json({ token, role: user.role });
   } catch (error) {
     console.error("Error during login:", error);
@@ -104,7 +113,7 @@ const login = async (req, res) => {
 // Logout
 const logout = async (req, res) => {
   try {
-    const session = await Session.findOne({});
+    let session = await Session.findOne({});
     if (session) {
       session.players = session.players.filter(
         (p) => p.userId.toString() !== req.user.id
@@ -122,10 +131,11 @@ const logout = async (req, res) => {
         session.isCompleted = false;
         session.timerId = null;
         session.readyStatus = { player1Ready: false, player2Ready: false };
-        await session.save();
-      } else {
-        await session.save();
+        session.phase = 0;
+        session.actionsCompleted = 0;
       }
+      await session.save();
+      sessionCache.set("activeSession", session);
       const io = req.app.get("io");
       io.emit("sessionUpdate", session);
       console.log(
@@ -143,6 +153,12 @@ const logout = async (req, res) => {
 // Get session
 const getSession = async (req, res) => {
   try {
+    if (sessionCache.has("activeSession")) {
+      console.log("Cache hit for activeSession");
+      return res.json(sessionCache.get("activeSession"));
+    }
+
+    const start = Date.now();
     let session = await Session.findOne({});
     if (!session) {
       console.log("No active session, creating new one");
@@ -159,19 +175,22 @@ const getSession = async (req, res) => {
         isCompleted: false,
         timerId: null,
         readyStatus: { player1Ready: false, player2Ready: false },
+        phase: 0,
+        actionsCompleted: 0,
       });
       await session.save();
+      sessionCache.set("activeSession", session);
       const io = req.app.get("io");
       io.emit("sessionUpdate", session);
-    }
-    if (!session.players.some((p) => p.userId.toString() === req.user.id)) {
+    } else if (!session.players.some((p) => p.userId.toString() === req.user.id)) {
       console.log(`Adding user ${req.user.username} to session`);
       session.players.push({ userId: req.user.id, role: req.user.role });
       await session.save();
+      sessionCache.set("activeSession", session);
       const io = req.app.get("io");
       io.emit("sessionUpdate", session);
     }
-    console.log(`Session fetched for user ${req.user.username}:`, session);
+    console.log(`Session fetched for user ${req.user.username} in ${Date.now() - start}ms`);
     res.json(session);
   } catch (error) {
     console.error("Error fetching session:", error);
@@ -182,9 +201,7 @@ const getSession = async (req, res) => {
 // Update session
 const update = async (req, res) => {
   if (req.user.role !== "player1")
-    return res
-      .status(403)
-      .json({ message: "Only Player 1 can update session" });
+    return res.status(403).json({ message: "Only Player 1 can update session" });
   const { banCount, pickCount } = req.body;
   try {
     const session = await Session.findOneAndUpdate(
@@ -192,10 +209,13 @@ const update = async (req, res) => {
       {
         banCount: parseInt(banCount) || 0,
         pickCount: parseInt(pickCount) || 0,
+        phase: 0,
+        actionsCompleted: 0,
       },
       { new: true }
     );
     if (!session) return res.status(404).json({ message: "No active session" });
+    sessionCache.set("activeSession", session);
     const io = req.app.get("io");
     io.emit("sessionUpdate", session);
     console.log("Session updated:", session);
@@ -209,9 +229,7 @@ const update = async (req, res) => {
 // Select weapon
 const selectWeapon = async (req, res) => {
   if (req.user.role !== "player1")
-    return res
-      .status(403)
-      .json({ message: "Only Player 1 can select weapons" });
+    return res.status(403).json({ message: "Only Player 1 can select weapons" });
   const { weaponId } = req.body;
   try {
     const session = await Session.findOne({});
@@ -220,13 +238,11 @@ const selectWeapon = async (req, res) => {
       return res.status(400).json({ message: "Weapon already selected" });
     session.selectedWeapons.push(weaponId);
     await session.save();
+    sessionCache.set("activeSession", session);
     const io = req.app.get("io");
     io.emit("sessionUpdate", session);
     console.log("Weapon selected:", session.selectedWeapons);
-    res.json({
-      message: "Weapon selected",
-      selectedWeapons: session.selectedWeapons,
-    });
+    res.json({ message: "Weapon selected", selectedWeapons: session.selectedWeapons });
   } catch (error) {
     console.error("Error selecting weapon:", error);
     res.status(500).json({ message: "Error selecting weapon", error });
@@ -261,16 +277,11 @@ const setReady = async (req, res) => {
 
     if (updated) {
       await session.save();
+      sessionCache.set("activeSession", session);
       const io = req.app.get("io");
       io.emit("sessionUpdate", session);
-      console.log(
-        `Player ${req.user.role} set ready status:`,
-        session.readyStatus
-      );
-      res.json({
-        message: "Ready status updated",
-        readyStatus: session.readyStatus,
-      });
+      console.log(`Player ${req.user.role} set ready status:`, session.readyStatus);
+      res.json({ message: "Ready status updated", readyStatus: session.readyStatus });
     }
   } catch (error) {
     console.error("Error setting ready status:", error);
@@ -283,9 +294,7 @@ let currentTimer = null;
 
 const startTimer = async (session, io, action, team) => {
   if (!session || session.isCompleted || !session.currentTurn || !action) {
-    console.log(
-      "Timer not started: session completed, no current turn, or no action"
-    );
+    console.log("Timer not started: session completed, no current turn, or no action");
     if (currentTimer) {
       clearInterval(currentTimer);
       currentTimer = null;
@@ -305,14 +314,14 @@ const startTimer = async (session, io, action, team) => {
   session.startTime = new Date();
   session.duration = duration;
   await session.save();
+  sessionCache.set("activeSession", session);
 
+  const startTimestamp = session.startTime.getTime();
   currentTimer = setInterval(async () => {
-    const elapsed = Math.floor(
-      (new Date() - new Date(session.startTime)) / 1000
-    );
+    const elapsed = Math.floor((new Date().getTime() - startTimestamp) / 1000);
     const timeLeft = duration - elapsed;
     console.log(`Timer update: ${timeLeft}s for ${action} by ${team}`);
-    io.emit("timerUpdate", { timeLeft, action, team });
+    io.emit("timerUpdate", { timeLeft, action, team, startTimestamp, duration });
 
     if (timeLeft <= 0) {
       clearInterval(currentTimer);
@@ -325,47 +334,55 @@ const startTimer = async (session, io, action, team) => {
       );
 
       if (availableWeapons.length > 0) {
-        const randomWeapon =
-          availableWeapons[Math.floor(Math.random() * availableWeapons.length)];
+        const randomWeapon = availableWeapons[Math.floor(Math.random() * availableWeapons.length)];
 
         if (action === "ban") {
           session.bans.push({ weaponId: randomWeapon, team });
-          if (session.bans.length < session.banCount * 2) {
-            session.currentTurn = team === "team1" ? "team2" : "team1";
-            session.actionType = "ban";
-          } else {
-            session.actionType = session.pickCount > 0 ? "pick" : null;
-            session.currentTurn =
-              session.pickCount > 0 ? session.firstTurn : null;
-            if (session.pickCount === 0) {
-              session.isCompleted = true;
-            }
-          }
         } else if (action === "pick") {
           session.picks.push({ weaponId: randomWeapon, team });
-          if (session.picks.length >= session.pickCount * 2) {
-            session.isCompleted = true;
-            session.currentTurn = null;
+        }
+
+        session.actionsCompleted += 1;
+
+        // Tính tổng số phase dựa trên banCount và pickCount
+        const totalPhases = session.banCount + session.pickCount; // Mỗi phase là 2 lượt ban hoặc 2 lượt pick
+        const totalActions = totalPhases * 2; // Tổng số hành động (2 ban hoặc 2 pick mỗi phase)
+
+        if (session.actionsCompleted >= totalActions) {
+          session.isCompleted = true;
+          session.currentTurn = null;
+          session.actionType = null;
+          session.phase = 0;
+          session.actionsCompleted = 0;
+        } else {
+          // Chuyển lượt trong cùng phase
+          session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
+          // Kiểm tra nếu phase hiện tại hoàn thành (2 hành động)
+          if (session.actionsCompleted % 2 === 0) {
+            session.phase += 1;
+            session.currentTurn = session.firstTurn; // Reset về người đi đầu trong phase mới
+          }
+          // Xác định actionType dựa trên phase
+          const currentPhase = session.phase;
+          if (currentPhase < session.banCount) {
+            session.actionType = "ban";
+          } else if (currentPhase < session.banCount + session.pickCount) {
+            session.actionType = "pick";
           } else {
-            session.currentTurn = team === "team1" ? "team2" : "team1";
+            session.actionType = null;
+            session.isCompleted = true;
           }
         }
 
         console.log(`Auto-selected ${action} for ${team}: ${randomWeapon}`);
-        io.emit("autoSelect", {
-          weaponId: randomWeapon,
-          action,
-          team,
-          session,
-        });
+        io.emit("autoSelect", { weaponId: randomWeapon, action, team, session });
 
         await session.save();
+        sessionCache.set("activeSession", session);
         io.emit("sessionUpdate", session);
 
         if (!session.isCompleted && session.currentTurn && session.actionType) {
-          console.log(
-            `Starting next timer for ${session.actionType} by ${session.currentTurn}`
-          );
+          console.log(`Starting next timer for ${session.actionType} by ${session.currentTurn}`);
           startTimer(session, io, session.actionType, session.currentTurn);
         } else {
           console.log("Session completed or no next turn");
@@ -376,12 +393,15 @@ const startTimer = async (session, io, action, team) => {
         session.isCompleted = true;
         session.currentTurn = null;
         session.actionType = null;
+        session.phase = 0;
+        session.actionsCompleted = 0;
         await session.save();
+        sessionCache.set("activeSession", session);
         io.emit("sessionUpdate", session);
         io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
       }
     }
-  }, 1000);
+  }, 2000); // Gửi mỗi 2 giây
 };
 
 // Reset session
@@ -414,6 +434,8 @@ const resetSession = async (req, res) => {
         startTime: null,
         duration: null,
         readyStatus: { player1Ready: false, player2Ready: false },
+        phase: 0,
+        actionsCompleted: 0,
       });
     } else {
       session.bans = [];
@@ -428,9 +450,12 @@ const resetSession = async (req, res) => {
       session.startTime = null;
       session.duration = null;
       session.readyStatus = { player1Ready: false, player2Ready: false };
+      session.phase = 0;
+      session.actionsCompleted = 0;
     }
 
     await session.save();
+    sessionCache.set("activeSession", session);
     const io = req.app.get("io");
     io.emit("sessionUpdate", session);
     io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
@@ -462,9 +487,7 @@ const lockIn = async (req, res) => {
       session.bans.some((ban) => ban.weaponId === weaponId) ||
       session.picks.some((pick) => pick.weaponId === weaponId)
     ) {
-      return res
-        .status(400)
-        .json({ message: "Weapon already banned or picked" });
+      return res.status(400).json({ message: "Weapon already banned or picked" });
     }
 
     const io = req.app.get("io");
@@ -477,35 +500,48 @@ const lockIn = async (req, res) => {
 
     if (action === "ban") {
       session.bans.push({ weaponId, team: session.currentTurn });
-      if (session.bans.length < session.banCount * 2) {
-        session.currentTurn =
-          session.currentTurn === "team1" ? "team2" : "team1";
-        session.actionType = "ban";
-      } else {
-        session.actionType = session.pickCount > 0 ? "pick" : null;
-        session.currentTurn = session.pickCount > 0 ? session.firstTurn : null;
-        if (session.pickCount === 0) {
-          session.isCompleted = true;
-        }
-      }
     } else if (action === "pick") {
       session.picks.push({ weaponId, team: session.currentTurn });
-      if (session.picks.length >= session.pickCount * 2) {
-        session.isCompleted = true;
-        session.currentTurn = null;
+    }
+
+    session.actionsCompleted += 1;
+
+    // Tính tổng số phase dựa trên banCount và pickCount
+    const totalPhases = session.banCount + session.pickCount; // Mỗi phase là 2 lượt ban hoặc 2 lượt pick
+    const totalActions = totalPhases * 2; // Tổng số hành động (2 ban hoặc 2 pick mỗi phase)
+
+    if (session.actionsCompleted >= totalActions) {
+      session.isCompleted = true;
+      session.currentTurn = null;
+      session.actionType = null;
+      session.phase = 0;
+      session.actionsCompleted = 0;
+    } else {
+      // Chuyển lượt trong cùng phase
+      session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
+      // Kiểm tra nếu phase hiện tại hoàn thành (2 hành động)
+      if (session.actionsCompleted % 2 === 0) {
+        session.phase += 1;
+        session.currentTurn = session.firstTurn; // Reset về người đi đầu trong phase mới
+      }
+      // Xác định actionType dựa trên phase
+      const currentPhase = session.phase;
+      if (currentPhase < session.banCount) {
+        session.actionType = "ban";
+      } else if (currentPhase < session.banCount + session.pickCount) {
+        session.actionType = "pick";
       } else {
-        session.currentTurn =
-          session.currentTurn === "team1" ? "team2" : "team1";
+        session.actionType = null;
+        session.isCompleted = true;
       }
     }
 
     await session.save();
+    sessionCache.set("activeSession", session);
     io.emit("sessionUpdate", session);
 
     if (!session.isCompleted && session.currentTurn && session.actionType) {
-      console.log(
-        `Starting timer after lockIn for ${session.actionType} by ${session.currentTurn}`
-      );
+      console.log(`Starting timer after lockIn for ${session.actionType} by ${session.currentTurn}`);
       startTimer(session, io, session.actionType, session.currentTurn);
     } else {
       console.log("Session completed or no next turn after lockIn");
@@ -539,9 +575,7 @@ const banWeapon = async (req, res) => {
       session.bans.some((b) => b.weaponId === weaponId) ||
       session.picks.some((p) => p.weaponId === weaponId)
     ) {
-      return res
-        .status(400)
-        .json({ message: "Weapon already banned or picked" });
+      return res.status(400).json({ message: "Weapon already banned or picked" });
     }
 
     const io = req.app.get("io");
@@ -553,24 +587,41 @@ const banWeapon = async (req, res) => {
     }
 
     session.bans.push({ weaponId, team: session.currentTurn });
-    if (session.bans.length < session.banCount * 2) {
-      session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
-      session.actionType = "ban";
+    session.actionsCompleted += 1;
+
+    // Tính tổng số phase dựa trên banCount và pickCount
+    const totalPhases = session.banCount + session.pickCount;
+    const totalActions = totalPhases * 2;
+
+    if (session.actionsCompleted >= totalActions) {
+      session.isCompleted = true;
+      session.currentTurn = null;
+      session.actionType = null;
+      session.phase = 0;
+      session.actionsCompleted = 0;
     } else {
-      session.actionType = session.pickCount > 0 ? "pick" : null;
-      session.currentTurn = session.pickCount > 0 ? session.firstTurn : null;
-      if (session.pickCount === 0) {
+      session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
+      if (session.actionsCompleted % 2 === 0) {
+        session.phase += 1;
+        session.currentTurn = session.firstTurn;
+      }
+      const currentPhase = session.phase;
+      if (currentPhase < session.banCount) {
+        session.actionType = "ban";
+      } else if (currentPhase < session.banCount + session.pickCount) {
+        session.actionType = "pick";
+      } else {
+        session.actionType = null;
         session.isCompleted = true;
       }
     }
 
     await session.save();
+    sessionCache.set("activeSession", session);
     io.emit("sessionUpdate", session);
 
     if (!session.isCompleted && session.currentTurn && session.actionType) {
-      console.log(
-        `Starting timer after banWeapon for ${session.actionType} by ${session.currentTurn}`
-      );
+      console.log(`Starting timer after banWeapon for ${session.actionType} by ${session.currentTurn}`);
       startTimer(session, io, session.actionType, session.currentTurn);
     } else {
       console.log("Session completed or no next turn after banWeapon");
@@ -604,9 +655,7 @@ const pickWeapon = async (req, res) => {
       session.bans.some((b) => b.weaponId === weaponId) ||
       session.picks.some((p) => p.weaponId === weaponId)
     ) {
-      return res
-        .status(400)
-        .json({ message: "Weapon already banned or picked" });
+      return res.status(400).json({ message: "Weapon already banned or picked" });
     }
 
     const io = req.app.get("io");
@@ -618,23 +667,40 @@ const pickWeapon = async (req, res) => {
     }
 
     session.picks.push({ weaponId, team: session.currentTurn });
-    if (
-      session.picks.length >= session.pickCount * 2 ||
-      session.pickCount === 0
-    ) {
+    session.actionsCompleted += 1;
+
+    const totalPhases = session.banCount + session.pickCount;
+    const totalActions = totalPhases * 2;
+
+    if (session.actionsCompleted >= totalActions) {
       session.isCompleted = true;
       session.currentTurn = null;
+      session.actionType = null;
+      session.phase = 0;
+      session.actionsCompleted = 0;
     } else {
       session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
+      if (session.actionsCompleted % 2 === 0) {
+        session.phase += 1;
+        session.currentTurn = session.firstTurn;
+      }
+      const currentPhase = session.phase;
+      if (currentPhase < session.banCount) {
+        session.actionType = "ban";
+      } else if (currentPhase < session.banCount + session.pickCount) {
+        session.actionType = "pick";
+      } else {
+        session.actionType = null;
+        session.isCompleted = true;
+      }
     }
 
     await session.save();
+    sessionCache.set("activeSession", session);
     io.emit("sessionUpdate", session);
 
     if (!session.isCompleted && session.currentTurn && session.actionType) {
-      console.log(
-        `Starting timer after pickWeapon for ${session.actionType} by ${session.currentTurn}`
-      );
+      console.log(`Starting timer after pickWeapon for ${session.actionType} by ${session.currentTurn}`);
       startTimer(session, io, session.actionType, session.currentTurn);
     } else {
       console.log("Session completed or no next turn after pickWeapon");
@@ -667,15 +733,17 @@ const coinFlip = async (req, res) => {
 
     session.firstTurn = Math.random() > 0.5 ? "team1" : "team2";
     session.currentTurn = session.firstTurn;
-    session.actionType =
-      session.banCount > 0 ? "ban" : session.pickCount > 0 ? "pick" : null;
+    session.actionType = session.banCount > 0 ? "ban" : session.pickCount > 0 ? "pick" : null;
     session.selectedWeapons = selectedWeapons || [];
     session.readyStatus.player1Ready = false;
     session.readyStatus.player2Ready = false;
+    session.phase = 0;
+    session.actionsCompleted = 0;
     if (!session.actionType) {
       session.isCompleted = true;
     }
     await session.save();
+    sessionCache.set("activeSession", session);
 
     const io = req.app.get("io");
     console.log("Emitting coinFlip event:", {
@@ -688,9 +756,7 @@ const coinFlip = async (req, res) => {
     });
 
     if (!session.isCompleted && session.currentTurn && session.actionType) {
-      console.log(
-        `Starting timer for first ${session.actionType} by ${session.currentTurn}`
-      );
+      console.log(`Starting timer for first ${session.actionType} by ${session.currentTurn}`);
       startTimer(session, io, session.actionType, session.currentTurn);
     } else {
       console.log("Session completed or no action after coinFlip");
