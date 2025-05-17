@@ -51,7 +51,7 @@ import React, { useState, useEffect } from 'react';
     const filteredWeapons = weapons.filter(weapon => availableWeapons.includes(weapon.id));
 
     const isPlayerTurn = (user === 'player1' && currentTurn === 'team1') || (user === 'player2' && currentTurn === 'team2');
-
+    
 
     const getWeaponState = (weaponId) => {
       if (bans?.some(ban => ban.weaponId === weaponId)) return 'banned';

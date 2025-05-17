@@ -117,16 +117,11 @@ import React, { useState, useEffect, useCallback } from 'react';
           setTimer(null);
         } else {
           let interval;
-          setTimer(timeLeft);
+          setTimer(timeLeft); // Sử dụng timeLeft từ server
           interval = setInterval(() => {
-            setTimer((prev) => {
-              if (prev <= 0) {
-                clearInterval(interval);
-                return 0;
-              }
-              return prev - 1;
-            });
+            setTimer((prev) => (prev > 0 ? prev - 1 : 0));
           }, 1000);
+          // Cleanup interval khi component unmount hoặc timer dừng
           return () => clearInterval(interval);
         }
       });

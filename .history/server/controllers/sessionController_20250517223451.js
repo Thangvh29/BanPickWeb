@@ -286,7 +286,7 @@ const Session = require("../models/Session");
   
       if (timeLeft !== lastTimeLeft) {
         console.log(`Timer update: ${timeLeft}s for ${action} by ${team} at ${new Date().toISOString()}`);
-        io.emit("timerUpdate", { timeLeft, action, team });
+        io.emit("timerUpdate", { timeLeft, action, team, startTimestamp, duration });
         lastTimeLeft = timeLeft;
       }
   
@@ -347,7 +347,7 @@ const Session = require("../models/Session");
             }
           }
   
-          console.log(`Auto-selected ${action} for ${team}: ${randomWeapon} after ${duration - timeLeft} seconds`);
+          console.log(`Auto-selected ${action} for ${team}: ${randomWeapon}`);
           io.emit("autoSelect", { weaponId: randomWeapon, action, team, session });
   
           await session.save();

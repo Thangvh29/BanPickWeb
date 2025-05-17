@@ -278,17 +278,11 @@ const Session = require("../models/Session");
     sessionCache.set("activeSession", session);
   
     const startTimestamp = session.startTime.getTime();
-    let lastTimeLeft = duration;
-  
     currentTimer = setInterval(async () => {
       const elapsed = Math.floor((new Date().getTime() - startTimestamp) / 1000);
       const timeLeft = duration - elapsed;
-  
-      if (timeLeft !== lastTimeLeft) {
-        console.log(`Timer update: ${timeLeft}s for ${action} by ${team} at ${new Date().toISOString()}`);
-        io.emit("timerUpdate", { timeLeft, action, team });
-        lastTimeLeft = timeLeft;
-      }
+      console.log(`Timer update: ${timeLeft}s for ${action} by ${team} at ${new Date().toISOString()}`);
+      io.emit("timerUpdate", { timeLeft, action, team, startTimestamp, duration });
   
       if (timeLeft <= 0) {
         clearInterval(currentTimer);
@@ -347,7 +341,7 @@ const Session = require("../models/Session");
             }
           }
   
-          console.log(`Auto-selected ${action} for ${team}: ${randomWeapon} after ${duration - timeLeft} seconds`);
+          console.log(`Auto-selected ${action} for ${team}: ${randomWeapon}`);
           io.emit("autoSelect", { weaponId: randomWeapon, action, team, session });
   
           await session.save();
@@ -370,12 +364,12 @@ const Session = require("../models/Session");
           session.actionsCompleted = 0;
           await session.save();
           sessionCache.set("activeSession", session);
-          io.emit("sessionUpdate", session);
+          io.emit("sessionUpdate", socket);
           io.emit("timerUpdate", { timeLeft: null, action: null, team: null });
         }
       }
     }, 1000);
-  };
+  };console.log("Added logs for debugging purposes");
 
   const resetSession = async (req, res) => {
     if (req.user.role !== "player1") return res.status(403).json({ message: "Only Player 1 can reset" });

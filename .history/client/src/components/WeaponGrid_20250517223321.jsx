@@ -52,7 +52,6 @@ import React, { useState, useEffect } from 'react';
 
     const isPlayerTurn = (user === 'player1' && currentTurn === 'team1') || (user === 'player2' && currentTurn === 'team2');
 
-
     const getWeaponState = (weaponId) => {
       if (bans?.some(ban => ban.weaponId === weaponId)) return 'banned';
       if (picks?.some(pick => pick.weaponId === weaponId)) return 'picked';
@@ -92,8 +91,8 @@ import React, { useState, useEffect } from 'react';
       setSelectedWeapon(null);
       onUpdate();
     };
-    
-    
+    // Trong WeaponGrid.jsx (nếu có)
+const canInteract = user === (currentTurn === 'team1' ? 'player1' : 'player2');
     return (
       <div className="weapon-grid">
         {error && <Alert variant="danger" onClose={() => setError('')} dismissible>{error}</Alert>}

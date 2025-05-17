@@ -111,22 +111,18 @@ import React, { useState, useEffect, useCallback } from 'react';
           }, 500);
         }, 2000);
       });
-      socket.on('timerUpdate', ({ timeLeft, action, team }) => {
+      socket.on('timerUpdate', ({ timeLeft, action, team, startTimestamp, duration }) => {
         console.log('Received timerUpdate:', { timeLeft, action, team });
         if (timeLeft === null) {
           setTimer(null);
         } else {
-          let interval;
-          setTimer(timeLeft);
-          interval = setInterval(() => {
-            setTimer((prev) => {
-              if (prev <= 0) {
-                clearInterval(interval);
-                return 0;
-              }
-              return prev - 1;
-            });
-          }, 1000);
+          const updateTimer = () => {
+            const elapsed = Math.floor((new Date().getTime() - startTimestamp) / 1000);
+            const newTimeLeft = duration - elapsed;
+            setTimer(newTimeLeft > 0 ? newTimeLeft : 0);
+          };
+          updateTimer();
+          const interval = setInterval(updateTimer, 1000);
           return () => clearInterval(interval);
         }
       });
@@ -158,13 +154,13 @@ import React, { useState, useEffect, useCallback } from 'react';
         socket.off('connect');
         socket.off('connect_error');
       };
-    });
+    }, []);
 
     useEffect(() => {
       if (sessionData) {
         setCurrentAction(sessionData.actionType);
         setFlipResult(sessionData.firstTurn === 'team1' ? 'Player 1' : sessionData.firstTurn === 'team2' ? 'Player 2' : null);
-        setStarted(!!sessionData.firstTurn && !sessionData.isCompleted && sessionData.actionType); // Thêm điều kiện actionType
+        setStarted(!!sessionData.firstTurn && !sessionData.isCompleted);
         setLocked(sessionData.banCount > 0 || sessionData.pickCount > 0);
         if (!isInputSet && !locked) {
           setBanCount(sessionData.banCount || '');

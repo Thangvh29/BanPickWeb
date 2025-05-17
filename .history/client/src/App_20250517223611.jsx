@@ -111,21 +111,15 @@ import React, { useState, useEffect, useCallback } from 'react';
           }, 500);
         }, 2000);
       });
-      socket.on('timerUpdate', ({ timeLeft, action, team }) => {
+      socket.on('timerUpdate', ({ timeLeft, action, team, startTimestamp, duration }) => {
         console.log('Received timerUpdate:', { timeLeft, action, team });
         if (timeLeft === null) {
           setTimer(null);
+          return () => clearInterval(interval); // Đảm bảo clear interval
         } else {
-          let interval;
-          setTimer(timeLeft);
-          interval = setInterval(() => {
-            setTimer((prev) => {
-              if (prev <= 0) {
-                clearInterval(interval);
-                return 0;
-              }
-              return prev - 1;
-            });
+          setTimer(timeLeft); // Sử dụng timeLeft từ server
+          const interval = setInterval(() => {
+            setTimer((prev) => (prev > 0 ? prev - 1 : 0));
           }, 1000);
           return () => clearInterval(interval);
         }
@@ -164,7 +158,7 @@ import React, { useState, useEffect, useCallback } from 'react';
       if (sessionData) {
         setCurrentAction(sessionData.actionType);
         setFlipResult(sessionData.firstTurn === 'team1' ? 'Player 1' : sessionData.firstTurn === 'team2' ? 'Player 2' : null);
-        setStarted(!!sessionData.firstTurn && !sessionData.isCompleted && sessionData.actionType); // Thêm điều kiện actionType
+        setStarted(!!sessionData.firstTurn && !sessionData.isCompleted);
         setLocked(sessionData.banCount > 0 || sessionData.pickCount > 0);
         if (!isInputSet && !locked) {
           setBanCount(sessionData.banCount || '');
