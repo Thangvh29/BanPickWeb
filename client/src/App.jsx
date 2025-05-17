@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { Container, Row, Col, Button, Form, Alert } from 'react-bootstrap';
 import UserPanelLeft from './components/UserPanelLeft';
@@ -28,7 +28,6 @@ function App() {
   const [started, setStarted] = useState(false);
   const [sessionData, setSessionData] = useState(null);
   const [currentAction, setCurrentAction] = useState(null);
-  const [actionIndex, setActionIndex] = useState(0);
   const [showCoinFlip, setShowCoinFlip] = useState(false);
   const [coinFace, setCoinFace] = useState('heads');
   const [error, setError] = useState('');
@@ -139,6 +138,7 @@ function App() {
       console.log('Received sessionUpdate:', session);
       setSessionData(prev => {
         if (JSON.stringify(prev) !== JSON.stringify(session)) {
+          console.log('Session data updated:', session);
           return session;
         }
         return prev;
@@ -146,7 +146,7 @@ function App() {
       setCurrentAction(session.actionType);
       setStarted(!session.isCompleted);
       setFlipResult(session.firstTurn === 'team1' ? 'Player 1' : session.firstTurn === 'team2' ? 'Player 2' : null);
-      setLocked(session.banCount > 0 || session.pickCount > 0);
+      setLocked(session.banCount > 0 || session.pickCount > 0); // Sửa ở đây
       if (!session.currentTurn) {
         setTimer(null);
       }
@@ -270,7 +270,6 @@ function App() {
         setStarted(false);
         setFlipResult(null);
         setCurrentAction(null);
-        setActionIndex(0);
         setShowCoinFlip(false);
         setLocked(false);
         setIsInputSet(false);
@@ -288,7 +287,6 @@ function App() {
   }, [user, fetchSessionData]);
 
   const handleUpdate = useCallback(() => {
-    // Logic này không còn cần thiết vì backend đã xử lý thứ tự ban/pick
     fetchSessionData();
   }, [fetchSessionData]);
 
@@ -298,8 +296,6 @@ function App() {
       setError('Súng này đã được chọn');
       return;
     }
-    const newSelectedWeapons = [...(sessionData?.selectedWeapons || []), weaponId];
-    setSelectedWeapons(newSelectedWeapons);
     try {
       const token = localStorage.getItem('token');
       console.log('Selecting weapon:', weaponId);
@@ -310,13 +306,11 @@ function App() {
       );
       console.log('Weapon select response');
       setError('');
-      await fetchSessionData();
     } catch (error) {
       console.error('Error selecting weapon:', error.response?.data || error.message);
       setError(error.response?.data?.message || 'Lỗi khi chọn súng');
-      setSelectedWeapons(sessionData?.selectedWeapons || []);
     }
-  }, [sessionData, fetchSessionData]);
+  }, [sessionData]);
 
   const handleBanPick = useCallback(async (weaponId, action) => {
     try {
@@ -353,7 +347,6 @@ function App() {
     setStarted(false);
     setSessionData(null);
     setCurrentAction(null);
-    setActionIndex(0);
     setShowCoinFlip(false);
     setError('');
     setSelectedWeapons([]);
@@ -566,5 +559,9 @@ function App() {
     </>
   );
 }
+
+// Tối ưu component con
+const MemoizedWeaponGrid = React.memo(WeaponGrid);
+const MemoizedWeaponSelectionPanel = React.memo(WeaponSelectionPanel);
 
 export default App;
