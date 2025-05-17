@@ -119,16 +119,23 @@ import React, { useState, useEffect, useCallback } from 'react';
           let interval;
           setTimer(timeLeft);
           interval = setInterval(() => {
-            setTimer((prev) => {
-              if (prev <= 0) {
-                clearInterval(interval);
-                return 0;
-              }
-              return prev - 1;
-            });
+            console.log('Timer interval check'); // Giữ kết nối, không giảm timer
           }, 1000);
           return () => clearInterval(interval);
         }
+      });
+      
+      socket.on('sessionUpdate', (session) => {
+        console.log('Received sessionUpdate:', session);
+        setSessionData((prev) => {
+          if (JSON.stringify(prev) !== JSON.stringify(session)) {
+            console.log('Session data updated:', session);
+            return session;
+          }
+          return prev;
+        });
+        setCurrentAction(session.actionType);
+        setCurrentTurn(session.currentTurn); // Đảm bảo cập nhật currentTurn
       });
       socket.on('autoSelect', ({ weaponId, action, team, session }) => {
         console.log('Received autoSelect:', { weaponId, action, team });

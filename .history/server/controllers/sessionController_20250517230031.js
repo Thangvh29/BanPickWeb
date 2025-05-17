@@ -376,7 +376,7 @@ const Session = require("../models/Session");
       }
     }, 1000);
   };
-  
+
   const resetSession = async (req, res) => {
     if (req.user.role !== "player1") return res.status(403).json({ message: "Only Player 1 can reset" });
 
