@@ -1,4 +1,3 @@
-// src/components/WeaponGrid.jsx
 import React, { useState, useEffect } from 'react';
 import { Row, Col, Alert } from 'react-bootstrap';
 import ak47 from '../assets/img/AK74.png';
