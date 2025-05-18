@@ -323,12 +323,9 @@ const startTimer = async (session, io, action, team) => {
 
         session.actionsCompleted += 1;
 
-        const totalBansPerPhase = session.banCount * 2;
-        const totalPicksPerPhase = session.pickCount * 2;
-        const totalActionsPerPhase = totalBansPerPhase + totalPicksPerPhase;
-        const actionsInPhase = session.actionsCompleted % totalActionsPerPhase;
-
-        const totalActions = totalActionsPerPhase * 2;
+        const totalBans = session.banCount * 2;
+        const totalPicks = session.pickCount * 2;
+        const totalActions = totalBans + totalPicks;
 
         if (session.actionsCompleted >= totalActions) {
           session.isCompleted = true;
@@ -337,20 +334,10 @@ const startTimer = async (session, io, action, team) => {
           session.phase = 0;
           session.actionsCompleted = 0;
         } else {
-          const inBanPhase = actionsInPhase < totalBansPerPhase;
-          const inPickPhase = actionsInPhase >= totalBansPerPhase && actionsInPhase < totalActionsPerPhase;
-
           session.currentTurn = session.currentTurn === "team1" ? "team2" : "team1";
-
-          if (actionsInPhase === 0) {
-            session.currentTurn = session.firstTurn;
-          } else if (actionsInPhase === totalBansPerPhase) {
-            session.currentTurn = session.firstTurn;
-          }
-
-          if (inBanPhase) {
+          if (session.actionsCompleted < totalBans) {
             session.actionType = "ban";
-          } else if (inPickPhase) {
+          } else if (session.actionsCompleted < totalActions) {
             session.actionType = "pick";
           } else {
             session.actionType = null;
@@ -433,6 +420,7 @@ const resetSession = async (req, res) => {
       session.readyStatus = { player1Ready: false, player2Ready: false };
       session.phase = 0;
       session.actionsCompleted = 0;
+      session.players = session.players.filter(p => p.userId.toString() === req.user.id);
     }
 
     await session.save();
