@@ -15,7 +15,7 @@ const socket = io((import.meta.env.VITE_API_URL || 'http://localhost:5000').repl
   autoConnect: true,
   transports: ['websocket', 'polling'],
   reconnection: true,
-  reconnectionAttempts: 10,
+  reconnectionAttempts: 5,
   reconnectionDelay: 1000,
 });
 
@@ -41,25 +41,22 @@ function App() {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.log('[App] No token found, user must login');
         setError('Vui lòng đăng nhập');
         setUser(null);
         return;
       }
-      console.log('[App] Fetching session data with token:', token.slice(0, 10) + '...');
       const response = await axios.get(`${API_URL}`, {
         headers: { Authorization: `Bearer ${token}` },
-        timeout: 7000,
+        timeout: 5000,
       });
       const newData = response.data;
       if (!newData.banCount || !newData.pickCount) {
-        console.error('[App] Invalid session data:', newData);
         setError('Dữ liệu phiên không hợp lệ');
         return;
       }
       setSessionData(prev => {
         if (JSON.stringify(prev) !== JSON.stringify(newData)) {
-          console.log('[App] Session data updated:', newData);
+          console.log('Session data updated:', newData);
           return newData;
         }
         return prev;
@@ -73,15 +70,16 @@ function App() {
         setPickCount(newData.pickCount || '');
       }
     } catch (error) {
-      console.error('[App] Fetch session error:', {
+      console.error('Error fetching session data:', {
         status: error.response?.status,
         data: error.response?.data,
+**.
         message: error.message,
       });
       if (axios.isAxiosError(error) && error.code === 'ECONNABORTED') {
-        setError('Yêu cầu hết thời gian, kiểm tra kết nối mạng');
+        setError('Yêu cầu hết thời gian, vui lòng kiểm tra kết nối mạng');
       } else if (!error.response) {
-        setError('Không kết nối được server, thử lại sau');
+        setError('Không thể kết nối đến server, vui lòng thử lại');
       } else if (error.response.status === 404) {
         setSessionData(null);
         setLocked(false);
@@ -92,9 +90,9 @@ function App() {
       } else if (error.response.status === 403 || error.response.status === 401) {
         localStorage.removeItem('token');
         setUser(null);
-        setError('Phiên đăng nhập không hợp lệ, đăng nhập lại');
+        setError('Phiên đăng nhập không hợp lệ, vui lòng đăng nhập lại');
       } else {
-        setError('Lỗi tải dữ liệu phiên, thử lại');
+        setError('Lỗi khi tải dữ liệu phiên, vui lòng thử lại');
       }
     } finally {
       setIsLoading(false);
@@ -104,53 +102,49 @@ function App() {
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      console.log('[App] Verifying token on mount');
       axios
         .get(`${API_URL}/verify`, {
           headers: { Authorization: `Bearer ${token}` },
-          timeout: 7000,
+          timeout: 5000,
         })
         .then((response) => {
-          console.log('[App] Token verified, role:', response.data.role);
+          console.log('Token verified, role:', response.data.role);
           setUser(response.data.role);
           fetchSessionData();
         })
         .catch((error) => {
-          console.error('[App] Token verification failed:', {
+          console.error('Token verification failed:', {
             status: error.response?.status,
             data: error.response?.data,
             message: error.message,
           });
           localStorage.removeItem('token');
           setUser(null);
-          setError('Phiên đăng nhập không hợp lệ, đăng nhập lại');
+          setError('Phiên đăng nhập không hợp lệ, vui lòng đăng nhập lại');
         });
     }
   }, [fetchSessionData]);
 
   useEffect(() => {
     socket.on('connect', () => {
-      console.log('[App] Socket.IO connected, ID:', socket.id);
+      console.log('Socket.IO connected:', socket.id);
       socket.emit('joinSession', 'activeSession');
     });
-    socket.on('sessionJoined', ({ sessionId }) => {
-      console.log('[App] Joined session:', sessionId);
-    });
     socket.on('connect_error', (error) => {
-      console.error('[App] Socket.IO connection error:', error.message);
-      setError('Lỗi kết nối server, thử lại');
+      console.error('Socket.IO connection error:', error.message);
+      setError('Không thể kết nối đến server, vui lòng thử lại');
     });
     socket.on('sessionUpdate', (session) => {
-      console.log('[App] Received sessionUpdate:', session);
+      console.log('Received sessionUpdate:', session);
       if (!session || !session.banCount || !session.pickCount) {
-        console.error('[App] Invalid session data:', session);
+        console.error('Invalid session data:', session);
         setError('Dữ liệu phiên không hợp lệ');
         return;
       }
       setSessionData(prev => {
         if (JSON.stringify(prev) !== JSON.stringify(session)) {
-          console.log('[App] Session data updated via socket:', session);
-          return session;
+          console.log('Session data updated:', session);
+          return newData;
         }
         return prev;
       });
@@ -160,7 +154,7 @@ function App() {
       setLocked(session.banCount > 0 || session.pickCount > 0);
     });
     socket.on('coinFlip', ({ firstTurn, coinFace }) => {
-      console.log('[App] Received coinFlip:', { firstTurn, coinFace });
+      console.log('Received coinFlip event:', { firstTurn, coinFace });
       setShowCoinFlip(true);
       setTimeout(() => {
         setCoinFace(coinFace);
@@ -173,12 +167,12 @@ function App() {
       }, 2000);
     });
     socket.on('timerUpdate', ({ timeLeft, action, team }) => {
-      console.log('[App] Received timerUpdate:', { timeLeft, action, team });
+      console.log('Received timerUpdate:', { timeLeft, action, team });
       setTimer(timeLeft);
       setCurrentAction(action);
     });
     socket.on('autoSelect', ({ weaponId, action, team, session }) => {
-      console.log('[App] Received autoSelect:', { weaponId, action, team });
+      console.log('Received autoSelect:', { weaponId, action, team });
       setSessionData(session);
       setCurrentAction(session.actionType);
       setStarted(!session.isCompleted);
@@ -188,7 +182,6 @@ function App() {
 
     return () => {
       socket.off('connect');
-      socket.off('sessionJoined');
       socket.off('connect_error');
       socket.off('sessionUpdate');
       socket.off('coinFlip');
@@ -208,18 +201,17 @@ function App() {
     }
     try {
       const token = localStorage.getItem('token');
-      console.log('[App] Locking ban/pick counts:', { banCount, pickCount });
       await axios.post(
         `${API_URL}/update`,
         { banCount: parseInt(banCount), pickCount: parseInt(pickCount) },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 7000 }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 }
       );
       setIsInputSet(true);
       setLocked(true);
       setError('');
       fetchSessionData();
     } catch (error) {
-      console.error('[App] Lock error:', error);
+      console.error('Error updating session:', error);
       setError(error.response?.data?.message || 'Lỗi khi cập nhật số lượng ban/pick');
     }
   };
@@ -231,8 +223,7 @@ function App() {
     }
     try {
       const token = localStorage.getItem('token');
-      console.log('[App] Unlocking session');
-      await axios.post(`${API_URL}/reset`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 7000 });
+      await axios.post(`${API_URL}/reset`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 });
       setIsInputSet(false);
       setLocked(false);
       setBanCount('');
@@ -243,7 +234,7 @@ function App() {
       setError('');
       fetchSessionData();
     } catch (error) {
-      console.error('[App] Unlock error:', error);
+      console.error('Error resetting session:', error);
       setError(error.response?.data?.message || 'Lỗi khi reset phiên');
     }
   };
@@ -259,17 +250,16 @@ function App() {
     }
     try {
       const token = localStorage.getItem('token');
-      console.log('[App] Selecting weapon:', weaponId);
       await axios.post(
         `${API_URL}/select`,
         { weaponId },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 7000 }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 }
       );
       setSelectedWeapons([...selectedWeapons, weaponId]);
       setError('');
       fetchSessionData();
     } catch (error) {
-      console.error('[App] Weapon select error:', error);
+      console.error('Error selecting weapon:', error);
       setError(error.response?.data?.message || 'Lỗi khi chọn súng');
     }
   };
@@ -277,12 +267,11 @@ function App() {
   const handlePrepare = async () => {
     try {
       const token = localStorage.getItem('token');
-      console.log('[App] Setting ready status');
-      await axios.post(`${API_URL}/ready`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 7000 });
+      await axios.post(`${API_URL}/ready`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 });
       setError('');
       fetchSessionData();
     } catch (error) {
-      console.error('[App] Prepare error:', error);
+      console.error('Error setting ready:', error);
       setError(error.response?.data?.message || 'Lỗi khi xác nhận chuẩn bị');
     }
   };
@@ -294,15 +283,14 @@ function App() {
     }
     try {
       const token = localStorage.getItem('token');
-      console.log('[App] Initiating coin flip');
       await axios.post(
         `${API_URL}/coinflip`,
         { selectedWeapons },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 7000 }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 }
       );
       setError('');
     } catch (error) {
-      console.error('[App] Coin flip error:', error);
+      console.error('Error flipping coin:', error);
       setError(error.response?.data?.message || 'Lỗi khi tung đồng xu');
     }
   };
@@ -310,25 +298,23 @@ function App() {
   const handleBanPick = async (weaponId, action) => {
     try {
       const token = localStorage.getItem('token');
-      console.log('[App] Ban/pick:', { weaponId, action });
       await axios.post(
         `${API_URL}/lockin`,
         { weaponId, action },
-        { headers: { Authorization: `Bearer ${token}` }, timeout: 7000 }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 }
       );
       setError('');
       fetchSessionData();
     } catch (error) {
-      console.error('[App] Ban/pick error:', error);
-      setError(error.response?.data?.message || 'Lỗi khi ban/pick');
+      console.error('Error in ban/pick:', error);
+      throw error;
     }
   };
 
   const handleLogout = async () => {
     try {
       const token = localStorage.getItem('token');
-      console.log('[App] Logging out');
-      await axios.post(`${API_URL}/logout`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 7000 });
+      await axios.post(`${API_URL}/logout`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 });
       localStorage.removeItem('token');
       setUser(null);
       setSessionData(null);
@@ -341,11 +327,12 @@ function App() {
       setPickCount('');
       setIsInputSet(false);
     } catch (error) {
-      console.error('[App] Logout error:', error);
+      console.error('Error logging out:', error);
       setError(error.response?.data?.message || 'Lỗi khi đăng xuất');
     }
   };
 
+  // Tối ưu render với useMemo
   const weaponGridProps = useMemo(() => ({
     currentTurn: sessionData?.currentTurn,
     turnAction: currentAction,
