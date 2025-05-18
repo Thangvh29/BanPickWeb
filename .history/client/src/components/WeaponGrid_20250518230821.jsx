@@ -51,7 +51,6 @@ const WeaponGrid = ({ currentTurn: initialCurrentTurn, onUpdate, turnAction: ini
 
   const filteredWeapons = weapons.filter((weapon) => availableWeapons.includes(weapon.id));
 
-  // Định nghĩa isPlayerTurn một lần duy nhất
   const isPlayerTurn = (user === 'player1' && currentTurn === 'team1') || (user === 'player2' && currentTurn === 'team2');
 
   const getWeaponState = (weaponId) => {
@@ -79,7 +78,7 @@ const WeaponGrid = ({ currentTurn: initialCurrentTurn, onUpdate, turnAction: ini
   };
 
   const handleLockIn = async (weaponId, e) => {
-    e.preventDefault(); // Ngăn hành vi mặc định gây refresh
+    e.preventDefault();
     if (!isPlayerTurn) {
       setError('Không phải lượt của bạn');
       return;
@@ -129,7 +128,7 @@ const WeaponGrid = ({ currentTurn: initialCurrentTurn, onUpdate, turnAction: ini
                   <span>{weapon.name}</span>
                 </div>
                 {isSelected && isPlayerTurn && turnAction && (
-                  <button className="btn-lock" onClick={() => handleLockIn(weapon.id)}>
+                  <button className="btn-lock" onClick={(e) => handleLockIn(weapon.id, e)}>
                     Khóa chọn
                   </button>
                 )}
